@@ -1,16 +1,21 @@
-const express = require('express');
 const { MongoClient } = require('mongodb');
-const cors = require('cors');
 
-const app = express();
-app.use(cors());
-app.use(express.json());
+module.exports = async (req, res) => {
+  // Enable CORS
+  res.setHeader('Access-Control-Allow-Credentials', true);
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET,OPTIONS,PATCH,DELETE,POST,PUT');
+  res.setHeader(
+    'Access-Control-Allow-Headers',
+    'X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version'
+  );
 
-// Proxy endpoint - receives Atlas URI and returns shop data
-app.post('/api/data', async (req, res) => {
+  if (req.method === 'OPTIONS') {
+    res.status(200).end();
+    return;
+  }
+
   const { atlasUri, shopId } = req.body;
-  
-  console.log('📊 Request received for shop:', shopId);
   
   if (!atlasUri) {
     return res.status(400).json({ error: 'Atlas URI is required' });
@@ -22,11 +27,10 @@ app.post('/api/data', async (req, res) => {
     // Connect to MongoDB Atlas
     client = new MongoClient(atlasUri);
     await client.connect();
-    console.log('✅ Connected to MongoDB Atlas');
     
     const db = client.db('pos_system');
     
-    // Get bills (last 500)
+    // Get bills
     const bills = await db.collection('bills')
       .find({})
       .sort({ createdAt: -1 })
@@ -46,8 +50,6 @@ app.post('/api/data', async (req, res) => {
     const totalRevenue = sales.reduce((sum, b) => sum + (b.total || 0), 0);
     const totalReturns = returns.reduce((sum, b) => sum + Math.abs(b.refundAmount || b.total || 0), 0);
     
-    console.log(`✅ Retrieved ${bills.length} bills, ${products.length} products`);
-    
     res.json({
       success: true,
       bills,
@@ -61,33 +63,9 @@ app.post('/api/data', async (req, res) => {
     });
     
   } catch (error) {
-    console.error('❌ Error:', error.message);
-    res.status(500).json({ 
-      error: error.message,
-      hint: 'Check your Atlas connection string and network access'
-    });
+    console.error('Error:', error);
+    res.status(500).json({ error: error.message });
   } finally {
     if (client) await client.close();
   }
-});
-
-// Health check endpoint
-app.get('/api/health', (req, res) => {
-  res.json({ status: 'ok', message: 'Proxy server is running' });
-});
-
-// Root endpoint
-app.get('/', (req, res) => {
-  res.json({ 
-    message: 'SmartPOS Proxy Server',
-    usage: 'POST to /api/data with { atlasUri, shopId }'
-  });
-});
-
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-  console.log(`\n🚀 SmartPOS Proxy Server Running`);
-  console.log(`   URL: http://localhost:${PORT}`);
-  console.log(`   Endpoint: POST /api/data`);
-  console.log(`\n   Deploy this to Cyclic.sh for production!\n`);
-});
+};
